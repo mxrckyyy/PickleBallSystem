@@ -37,4 +37,53 @@ describe('TimeSlotGrid', () => {
     expect(screen.getByRole('radio', { name: /6:00 am – 7:00 am/i })).toBeDisabled();
     expect(screen.getByRole('radio', { name: /7:00 am – 8:00 am/i })).toBeDisabled();
   });
+
+  it('disables only the slots the availability engine reports as unavailable', () => {
+    render(
+      <TimeSlotGrid
+        slots={SLOTS}
+        bookingDate={FUTURE_DATE}
+        unavailable={new Map([['07:00', 'booked']])}
+      />,
+    );
+    expect(screen.getByRole('radio', { name: /7:00 am – 8:00 am/i })).toBeDisabled();
+    expect(screen.getByRole('radio', { name: /6:00 am – 7:00 am/i })).toBeEnabled();
+  });
+
+  it('tells assistive technology why a slot cannot be chosen', () => {
+    render(
+      <TimeSlotGrid
+        slots={SLOTS}
+        bookingDate={FUTURE_DATE}
+        unavailable={
+          new Map([
+            ['06:00', 'past'],
+            ['07:00', 'booked'],
+          ])
+        }
+      />,
+    );
+    expect(
+      screen.getByRole('radio', { name: /6:00 am – 7:00 am.*already started/i }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole('radio', { name: /7:00 am – 8:00 am.*already booked/i }),
+    ).toBeDisabled();
+  });
+
+  it('renders a loading state instead of the grid', () => {
+    render(<TimeSlotGrid slots={SLOTS} bookingDate={FUTURE_DATE} loading />);
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument();
+    expect(screen.getByTestId('slot-grid-loading')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(/loading available times/i);
+  });
+
+  it('explains the footnote for live and static grids', () => {
+    const { rerender } = render(<TimeSlotGrid slots={SLOTS} bookingDate={FUTURE_DATE} />);
+    expect(screen.getByText(/full operating grid/i)).toBeInTheDocument();
+
+    rerender(<TimeSlotGrid slots={SLOTS} bookingDate={FUTURE_DATE} live />);
+    expect(screen.getByText(/refreshes automatically/i)).toBeInTheDocument();
+    expect(screen.queryByText(/full operating grid/i)).not.toBeInTheDocument();
+  });
 });

@@ -5,7 +5,7 @@
 > (`src/`, `supabase/`, `package.json`) — **actual files win** over this document.
 > Never store secrets in this file.
 
-**Last updated:** 2026-10-02 (Phase 4 — Public UI complete)
+**Last updated:** 2026-10-02 (Phase 5 — Availability engine complete)
 
 ---
 
@@ -35,11 +35,11 @@ structure, §4 Database schema, §5 API design, §6 Business logic, §7 Security
 | 2     | Supabase database (schema, constraints, indexes, RLS)     | ✅ Complete    |
 | 3     | Authentication (phone OTP)                                | ✅ Complete    |
 | 4     | Public UI                                                 | ✅ Complete    |
-| 5     | Availability engine                                       | ⬜ Not started |
+| 5     | Availability engine                                       | ✅ Complete    |
 | 6     | Booking creation                                          | ⬜ Not started |
 | —     | Payments / Edge Functions / Admin / Testing / CI-CD       | ⬜ Not started |
 
-**Active phase: 5 — Availability engine.**
+**Active phase: 6 — Booking creation.**
 
 ## 3. Technology stack
 
@@ -129,14 +129,14 @@ PickleBall System/
 │   ├── components/booking/   ✅ DatePicker, TimeSlotGrid, CourtSelector, AddOnSelector, BookingSummary, CustomerDetailsForm · ⬜ PaymentMethodSelector
 │   ├── components/admin/     ⬜ BookingTable, CourtManager, StatsCards
 │   ├── pages/                ✅ Home, Book, MyBookings, Login, NotFound
-│   ├── hooks/                ✅ useAuth.jsx, useCourts.js, useAddons.js, useMyBookings.js · ⬜ useAvailability, useBooking, usePayment
+│   ├── hooks/                ✅ useAuth.jsx, useCourts.js, useAddons.js, useMyBookings.js, useAvailability.js · ⬜ useBooking, usePayment
 │   ├── lib/                  ✅ supabase.js, constants.js, format.js, queryClient.js, ui.js, authRateLimit.js, booking.js
 │   ├── stores/               ✅ bookingStore.js
 │   ├── schemas/              ⬜ Zod validation schemas (Phase 6)
 │   └── styles/               ✅ index.css (Tailwind v4 entry)
-├── supabase/                 ✅ migrations/ (4 migration files)
-├── tests/                    ✅ setup.js, unit/{components,lib,hooks,pages} (12 suites),
-│                              integration/rls_and_constraints.test.sql
+├── supabase/                 ✅ migrations/ (5 migration files)
+├── tests/                    ✅ setup.js, unit/{components,lib,hooks,pages} (14 suites),
+│                              integration/{rls_and_constraints,availability}.test.sql
 ├── docs/                     ⬜ (per spec §21)
 ├── .env.example              ✅
 ├── .env.local                ✅ (empty placeholders, git-ignored)
@@ -151,25 +151,27 @@ PickleBall System/
 ### Actual repository structure (verified)
 
 Non-empty: foundation files above + `PROJECT_CONTEXT.md` + `supabase/migrations/`
-(4 files) + auth-phase source (`src/hooks/useAuth.jsx`, `src/lib/authRateLimit.js`,
+(5 files) + auth-phase source (`src/hooks/useAuth.jsx`, `src/lib/authRateLimit.js`,
 `src/components/RequireAuth.jsx`, `src/pages/Login.jsx`) + public-UI source
 (`src/lib/booking.js`, `src/hooks/{useCourts,useAddons,useMyBookings}.js`,
 `src/components/booking/` (6 components), rebuilt `Book`/`MyBookings`/`Home`
-pages) + `tests/unit/**` (12 suites, 67 tests) +
-`tests/integration/rls_and_constraints.test.sql`. No `docs/`, `public/`, or
-`.git` yet.
+pages) + availability source (`src/hooks/useAvailability.js`, wiring in
+`Book.jsx`/`TimeSlotGrid.jsx`, migration 5) + `tests/unit/**` (14 suites, 86
+tests) + `tests/integration/*.test.sql` (2 files). No `docs/` or `public/` yet.
+Version controlled: git repository on `main`, remote
+`https://github.com/mxrckyyy/PickleBallSystem.git`.
 
 ## 6. Existing routes
 
 Defined in `src/App.jsx` (all lazy-loaded, wrapped in `AppLayout`):
 
-| Route          | Page                   | Status                                                                                                 |
-| -------------- | ---------------------- | ------------------------------------------------------------------------------------------------------ |
-| `/`            | Home                   | ✅ Implemented (rates, hours, CTAs, live court cards)                                                  |
-| `/book`        | Book (court/date/time) | ✅ Selection UI complete — public for browsing (J17); live availability + confirm arrive in Phases 5/6 |
-| `/login`       | Login (phone OTP)      | ✅ Implemented (phone → OTP → verify, redirects via `next`)                                            |
-| `/my-bookings` | My Bookings            | ✅ Implemented (own bookings via RLS, read-only) behind `RequireAuth`                                  |
-| `*`            | NotFound (404)         | ✅ Implemented                                                                                         |
+| Route          | Page                   | Status                                                                                                                                                                     |
+| -------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`            | Home                   | ✅ Implemented (rates, hours, CTAs, live court cards)                                                                                                                      |
+| `/book`        | Book (court/date/time) | ✅ Selection UI + **live availability** (RPC, per-slot disabled state, selection dropped when a slot goes away); sign-in at confirmation + payment arrive in Phase 6 (J17) |
+| `/login`       | Login (phone OTP)      | ✅ Implemented (phone → OTP → verify, redirects via `next`)                                                                                                                |
+| `/my-bookings` | My Bookings            | ✅ Implemented (own bookings via RLS, read-only) behind `RequireAuth`                                                                                                      |
+| `*`            | NotFound (404)         | ✅ Implemented                                                                                                                                                             |
 
 Planned later: `/booking/success`, `/booking/error` (payment phase),
 `/admin/*` (admin phase).
@@ -213,9 +215,16 @@ bootstrap via `getSession()`, `onAuthStateChange` subscription, `sendOtp`,
 Data hooks (TanStack Query, each exposes `isConfigured` so pages can render a
 warning instead of querying): `useCourts` (active courts, 5-min TTL §12),
 `useAddons` (active add-ons), `useMyBookings` (own rows, `created_at` desc —
-matches `bookings_user_created_idx`; RLS + explicit `user_id` filter).
+matches `bookings_user_created_idx`; RLS + explicit `user_id` filter),
+`useAvailability(courtId, bookingDate)` (`POST /rest/v1/rpc/get_availability`,
+30-s TTL §12, `refetchOnWindowFocus`, disabled until both arguments exist;
+returns `slots`, `slotStarts`, `unavailable` (Map `start → 'booked' | 'past'`),
+`live` and `isConfigured`, and subscribes to the Realtime channel
+`court-{id}-{date}` so a broadcast invalidates the query — see J18/J19).
+`useAvailability` also exports `publishAvailabilityChange(courtId, date)` for
+Phase 6 to call after a booking changes.
 
-Planned: `useAvailability`, `useBooking`, `usePayment`.
+Planned: `useBooking`, `usePayment`.
 
 ## 9. Stores
 
@@ -229,7 +238,7 @@ Selection state only — never a source of truth for availability, price or stat
 
 ### Supabase status
 
-- `supabase/migrations/` created with 4 ordered migrations (no `config.toml` yet —
+- `supabase/migrations/` created with 5 ordered migrations (no `config.toml` yet —
   Supabase CLI/Docker are still missing, see known issue 3).
 - No remote project created / no credentials available yet
   (`VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` remain empty placeholders).
@@ -247,6 +256,7 @@ Selection state only — never a source of truth for availability, price or stat
   | `20261002000002_supporting_tables.sql`      | 13 schema-only supporting tables (J8)                                                                 |
   | `20261002000003_functions_and_triggers.sql` | auth → profile trigger, booking insert/update guards, user update guard, audit writer, JWT helpers    |
   | `20261002000004_rls_policies.sql`           | grants + RLS policies for every table (§7)                                                            |
+  | `20261002000005_availability.sql`           | `pricing_tier(time)` (§6 tiers, J3) + `get_availability(uuid, date)` SECURITY DEFINER RPC (J18)       |
 
 - **Critical rule:** partial unique index `bookings_slot_uniq` on
   `(court_id, booking_date, start_time) WHERE status IN ('pending','confirmed')`
@@ -281,13 +291,44 @@ Selection state only — never a source of truth for availability, price or stat
   exercised against a real SMS provider (known issue 4, ambiguity J2). Without
   credentials the UI shows a configuration warning and disables the buttons.
 
+### Availability status
+
+- **Complete (engine + UI wiring).** `get_availability(p_court_id,
+p_booking_date)` (migration 5) is a `SECURITY DEFINER` RPC exposed as
+  `POST /rest/v1/rpc/get_availability` and executable by `anon`,
+  `authenticated` and `service_role` — guests may view availability but not book
+  (§7 matrix, J17; mechanism recorded as **J18**).
+- Behaviour: validates an active court and the today…+30-day window, generates
+  the 16 hourly slots of 06:00–22:00, applies the §6 overlap rule
+  (`slot.start < booking.end AND slot.end > booking.start`) against that
+  court/date's `pending`+`confirmed` rows only (J16 — cancelled/completed rows
+  release their slot), marks elapsed same-day slots `past`, and attaches the §6
+  tier + rate from `public.pricing_tier(time)`. Everything is evaluated in
+  Asia/Manila wall-clock time (J15).
+- Response shape: `{ court_id, booking_date, timezone, open, close,
+slot_minutes, slots: [{ start, end, tier, rate, available, reason }] }` with
+  `reason ∈ {booked, past, null}`. **No PII is returned** — only booleans (§7).
+- Client: `useAvailability` (30-s TTL §12) feeds `TimeSlotGrid` through the
+  Book page — the server-supplied `slotStarts` replace the static grid when
+  configured, unavailable slots are disabled with an accessible reason, the
+  grid shows a skeleton while fetching and an `Alert` + retry on failure, and a
+  selected slot that the engine reports as gone is cleared with a toast.
+- Realtime (**J19**): the hook subscribes to `court-{id}-{date}` (§5 naming)
+  for `availability-changed` broadcasts and invalidates the query.
+  `postgres_changes` is deliberately not used — its rows are RLS-filtered, so a
+  guest would never receive another customer's booking event. Phase 6 calls
+  `publishAvailabilityChange(courtId, date)` after a create/cancel.
+- Not verifiable live yet: no Supabase project (known issue 4), so the RPC was
+  verified through the local harness instead (see §14 Phase 5).
+
 ### Booking status
 
-- **Selection UI complete (Phase 4); creation not started (Phase 6).** The Book
-  page walks court → date → hourly slot → add-ons → customer details with a live
-  estimate from the §6 tiers (`src/lib/booking.js`); "Continue to payment"
-  stays disabled until every step is filled, and the actual insert happens in
-  Phase 6 (auth at confirmation — J17).
+- **Selection UI + live availability complete (Phases 4–5); creation not started
+  (Phase 6).** The Book page walks court → date → hourly slot → add-ons →
+  customer details with a live estimate from the §6 tiers
+  (`src/lib/booking.js`); slots are disabled from the engine's `available`
+  flags, "Continue to payment" stays disabled until every step is filled, and
+  the actual insert happens in Phase 6 (auth at confirmation — J17).
 - Lifecycle (§6): `pending → confirmed` (payment webhook),
   `pending → cancelled` (15-min timeout), `confirmed → completed` (play time
   passed), `confirmed → cancelled` (user cancels within policy), `cancelled` and
@@ -338,18 +379,24 @@ Selection state only — never a source of truth for availability, price or stat
 ### Testing status
 
 - Vitest configured (jsdom, `tests/setup.js` with jest-dom matchers).
-  Current: **12 suites / 67 tests passing** — `Button` (3), `RequireAuth` (3),
+  Current: **14 suites / 86 tests passing** — `Button` (3), `RequireAuth` (3),
   `authRateLimit` (6), `useAuth` (10), `useAuthUnconfigured` (3), `Login` (6),
-  `booking` lib (11), `CourtSelector` (7), `TimeSlotGrid` (5),
-  `CustomerDetailsForm` (4), `Book` page (3), `MyBookings` page (6).
-- New: `tests/integration/rls_and_constraints.test.sql` — **34 assertions
-  (T01–T31 + T24b) passing** against the throwaway PostgreSQL cluster: unique
-  slot, insert/update guards, all §6 validations, RLS isolation for
-  customer/other-customer/guest/admin, audit access, cancellation releasing the
-  slot. The file runs in one transaction and rolls back (safe against any
-  Supabase database), and expects the connection role to be able to
-  `set role service_role` (postgres works everywhere; the local harness connects
-  as `testrunner` so `session_user` is not superuser/BYPASSRLS).
+  `booking` lib (11), `CourtSelector` (7), `TimeSlotGrid` (9),
+  `CustomerDetailsForm` (4), `Book` page (7), `MyBookings` page (6),
+  `useAvailability` (8), `useAvailabilityUnconfigured` (2).
+- Integration (2 files, both single-transaction + rollback, safe against any
+  Supabase database; the connection role must be able to `set role
+service_role` — postgres works everywhere, the local harness connects as
+  `testrunner` so `session_user` is not superuser/BYPASSRLS):
+  - `rls_and_constraints.test.sql` — **34 assertions (T01–T31 + T24b)**: unique
+    slot, insert/update guards, all §6 validations, RLS isolation for
+    customer/other-customer/guest/admin, audit access, cancellation releasing
+    the slot.
+  - `availability.test.sql` — **18 assertions (T32–T49)**: full 16-slot grid and
+    grid metadata, §6 tier/rate at every boundary, exact/multi-hour/partial/
+    adjacent overlap, court isolation, cancelled+completed release, exact free
+    count, no PII in the payload, guest + signed-in callers, inactive/unknown
+    court, past date, >30-day date, today's `past` flags, other-date isolation.
 - Target pyramid (§9): unit 70% (Vitest + RTL), integration 25%
   (Vitest + local Supabase), e2e 5% (Playwright), plus k6/OWASP ZAP as needed.
 - Layout: `tests/unit/{components,lib,hooks,pages}` ✅, `tests/integration` ✅,
@@ -357,13 +404,16 @@ Selection state only — never a source of truth for availability, price or stat
 
 ### Deployment status
 
-- **Not started.** No git repo, no GitHub, no Vercel, no CI pipeline.
+- **Version controlled, not deployed.** Git repository on `main` with remote
+  `https://github.com/mxrckyyy/PickleBallSystem.git`; **no Vercel project, no CI
+  pipeline** yet.
 - Required pipeline (§10): lint → type check → unit → integration → build →
   preview (PR) → production (main) → migrations → functions deploy.
 
 ## 11. Known issues
 
-1. **No git repository** — code exists but is not version controlled yet.
+1. **No CI pipeline / no Vercel project** — git exists (`main` + GitHub remote),
+   but nothing builds or deploys automatically yet (see Deployment status).
 2. **Specification lives outside the repository** (`PKB SYSTEM DOCS/Developers.pdf`);
    risk of drift if the folder is edited independently.
 3. **Tooling gap** — Docker and Supabase CLI are not installed, so there is no
@@ -379,11 +429,10 @@ Selection state only — never a source of truth for availability, price or stat
    data hooks will report "not configured" rather than query).
 5. **Phone OTP delivery provider is unspecified** — Supabase Auth phone OTP needs an
    SMS provider; §1 lists Semaphore only for application notifications.
-6. **`/book` does not check live availability yet** — the slot grid renders the
-   full operating grid (past hours disabled) because the availability engine is
-   Phase 5; checkout remains disabled until booking creation ships in Phase 6.
-   `PaymentMethodSelector`, admin pages and `/booking/success|error` are still
-   unwritten.
+6. **`/book` cannot create a booking yet** — live availability now drives the
+   slot grid (Phase 5), but checkout stays disabled and the insert lands in
+   Phase 6. `PaymentMethodSelector`, admin pages and
+   `/booking/success|error` are still unwritten.
 7. **Session does not survive a full page reload** (decision J12) — tokens are kept
    in memory only, per §7. Server-side OTP TTL (5 min, §7) and refresh-token
    cookie handling still need confirming on the real Supabase project.
@@ -391,39 +440,47 @@ Selection state only — never a source of truth for availability, price or stat
    enforces `> 0`; the authoritative price (§6 tiers, J3) must be computed in the
    database/Edge Function before the payment phase ships.
 9. **Integration harness is machine-local** — the shim/runner scripts live in a
-   temp directory (by design, not committed); the committed artifact is
-   `tests/integration/rls_and_constraints.test.sql`, which runs on any Supabase
-   database.
+   temp directory (by design, not committed); the committed artifacts are
+   `tests/integration/rls_and_constraints.test.sql` and
+   `tests/integration/availability.test.sql`, which run on any Supabase
+   database (the runner loops over every `tests/integration/*.test.sql` file).
+10. **Realtime availability broadcast is not verified against a live Supabase
+    project** — the `court-{id}-{date}` subscription and the
+    `publishAvailabilityChange` helper are unit-tested only; without a project
+    (known issue 4) no broadcast can be observed. If realtime turns out to be
+    unavailable, the 30-s TTL + window-focus refetch still keep the grid fresh.
 
 ## 12. Missing requirements
 
 Foundation (Phase 1), the database schema/RLS (Phase 2), the auth client
-(Phase 3) and the public UI (Phase 4) are done. Still missing: availability,
-booking creation, payments (Edge Functions + payment UI), cron jobs, SMS, admin,
-audit-log _consumption_, security headers/rate limits, monitoring, CI/CD,
-documentation (§21).
+(Phase 3), the public UI (Phase 4) and the availability engine (Phase 5) are
+done. Still missing: booking creation, payments (Edge Functions + payment UI),
+cron jobs, SMS, admin, audit-log _consumption_, security headers/rate limits,
+monitoring, CI/CD, documentation (§21).
 
 ## 13. Specification ambiguities to keep resolved here
 
-| #   | Ambiguity                                                                                              | Decision                                                                                                                                                                                                      |
-| --- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| J1  | JavaScript vs TypeScript (§3 `vite.config.js` vs §10 type-check stage)                                 | **JavaScript** until the team decides otherwise                                                                                                                                                               |
-| J2  | Phone OTP SMS provider not named in §1                                                                 | Open — must be chosen before Phase 3 verification against a live project                                                                                                                                      |
-| J3  | Pricing: `courts.hourly_rate/peak_rate` (§4) vs fixed tiers ₱200/₱250/₱350 (§6)                        | **§6 tiers authoritative** for calculation; court rate columns kept (schema requirement) but unused                                                                                                           |
-| J4  | Court operating hours are referenced in §6 but no column exists in §4                                  | Store as site-level constants (6:00–22:00) until the spec defines per-court hours                                                                                                                             |
-| J5  | `users` vs `auth.users` linkage not described                                                          | Row in `public.users` created from auth trigger, `id = auth.uid()`                                                                                                                                            |
-| J6  | Discount rules (senior/PWD %) not defined                                                              | Fields exist, logic deferred                                                                                                                                                                                  |
-| J7  | Strike count column missing for §17 strike system                                                      | Deferred, listed as missing schema element                                                                                                                                                                    |
-| J8  | Scope of supporting tables (no business rules given)                                                   | Create schema only; no UI/logic                                                                                                                                                                               |
-| J9  | Admin grant mechanism (`users.role` vs `staff`)                                                        | `users.role = 'admin'` via secure SQL (no self-service)                                                                                                                                                       |
-| J10 | No-show job "per booking" vs cron model                                                                | Recurring sweep query (simplest, documented)                                                                                                                                                                  |
-| J11 | Refund amount/authorization details undefined                                                          | Deferred to payment phase                                                                                                                                                                                     |
-| J12 | §7 forbids localStorage tokens but supabase-js persists sessions there by default                      | Custom in-memory storage adapter; reload ⇒ re-login (documented limitation, follow-up: httpOnly cookie refresh)                                                                                               |
-| J13 | Rate-limit enforcement tier not specified                                                              | Deferred; candidate: Edge Function / Vercel middleware                                                                                                                                                        |
-| J14 | PayMongo API version/flow (Checkout vs Intent)                                                         | Confirm with a test account before payment phase                                                                                                                                                              |
-| J15 | `time`/`date` columns are timezone-free                                                                | Slot logic evaluated strictly in Asia/Manila (§19)                                                                                                                                                            |
-| J16 | §4 requires a unique slot, but §6 requires cancelled bookings to release theirs                        | Partial unique index `bookings_slot_uniq` on `(court_id, booking_date, start_time) WHERE status IN ('pending','confirmed')` — uniqueness holds only while a slot is actually held (referenced by migration 1) |
-| J17 | §7 matrix lets guests _view availability_ but not _create bookings_ — when must `/book` require login? | `/book` stays public through Phases 4–5 (browse courts/date/slots); sign-in is enforced at booking creation in Phase 6                                                                                        |
+| #   | Ambiguity                                                                                                                                                                 | Decision                                                                                                                                                                                                                                             |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| J1  | JavaScript vs TypeScript (§3 `vite.config.js` vs §10 type-check stage)                                                                                                    | **JavaScript** until the team decides otherwise                                                                                                                                                                                                      |
+| J2  | Phone OTP SMS provider not named in §1                                                                                                                                    | Open — must be chosen before Phase 3 verification against a live project                                                                                                                                                                             |
+| J3  | Pricing: `courts.hourly_rate/peak_rate` (§4) vs fixed tiers ₱200/₱250/₱350 (§6)                                                                                           | **§6 tiers authoritative** for calculation; court rate columns kept (schema requirement) but unused                                                                                                                                                  |
+| J4  | Court operating hours are referenced in §6 but no column exists in §4                                                                                                     | Store as site-level constants (6:00–22:00) until the spec defines per-court hours                                                                                                                                                                    |
+| J5  | `users` vs `auth.users` linkage not described                                                                                                                             | Row in `public.users` created from auth trigger, `id = auth.uid()`                                                                                                                                                                                   |
+| J6  | Discount rules (senior/PWD %) not defined                                                                                                                                 | Fields exist, logic deferred                                                                                                                                                                                                                         |
+| J7  | Strike count column missing for §17 strike system                                                                                                                         | Deferred, listed as missing schema element                                                                                                                                                                                                           |
+| J8  | Scope of supporting tables (no business rules given)                                                                                                                      | Create schema only; no UI/logic                                                                                                                                                                                                                      |
+| J9  | Admin grant mechanism (`users.role` vs `staff`)                                                                                                                           | `users.role = 'admin'` via secure SQL (no self-service)                                                                                                                                                                                              |
+| J10 | No-show job "per booking" vs cron model                                                                                                                                   | Recurring sweep query (simplest, documented)                                                                                                                                                                                                         |
+| J11 | Refund amount/authorization details undefined                                                                                                                             | Deferred to payment phase                                                                                                                                                                                                                            |
+| J12 | §7 forbids localStorage tokens but supabase-js persists sessions there by default                                                                                         | Custom in-memory storage adapter; reload ⇒ re-login (documented limitation, follow-up: httpOnly cookie refresh)                                                                                                                                      |
+| J13 | Rate-limit enforcement tier not specified                                                                                                                                 | Deferred; candidate: Edge Function / Vercel middleware                                                                                                                                                                                               |
+| J14 | PayMongo API version/flow (Checkout vs Intent)                                                                                                                            | Confirm with a test account before payment phase                                                                                                                                                                                                     |
+| J15 | `time`/`date` columns are timezone-free                                                                                                                                   | Slot logic evaluated strictly in Asia/Manila (§19)                                                                                                                                                                                                   |
+| J16 | §4 requires a unique slot, but §6 requires cancelled bookings to release theirs                                                                                           | Partial unique index `bookings_slot_uniq` on `(court_id, booking_date, start_time) WHERE status IN ('pending','confirmed')` — uniqueness holds only while a slot is actually held (referenced by migration 1)                                        |
+| J17 | §7 matrix lets guests _view availability_ but not _create bookings_ — when must `/book` require login?                                                                    | `/book` stays public through Phases 4–5 (browse courts/date/slots); sign-in is enforced at booking creation in Phase 6                                                                                                                               |
+| J18 | How does the public grid read availability? §5 defines no availability endpoint, and raw `bookings` reads are RLS-scoped to their owner (a guest would see an empty grid) | `get_availability(uuid, date)` SECURITY DEFINER RPC granted to `anon`/`authenticated` — returns computed booleans only, never other customers' rows (§7); chosen over `postgres_changes` reads, which are RLS-filtered                               |
+| J19 | Realtime mechanism for availability changes (`postgres_changes` vs broadcast)                                                                                             | **Broadcast** on `court-{id}-{date}` with event `availability-changed` (§5 channel name); `postgres_changes` would deliver nothing to guests because the `bookings` rows are RLS-filtered. Callers publish explicitly after a state change (Phase 6) |
 
 ## 14. Phase log
 
@@ -545,35 +602,87 @@ documentation (§21).
   clean · `npm test` → **67/67 passing** (12 files) · `npm run build` → success
   (initial ≈154 KB gzip — within §12's 200 KB budget; zod/RHF live in a shared
   `schemas` chunk lazy-loaded with Login/Book).
-- **Notes:** slot grid is intentionally static until Phase 5 (known issue 6);
-  prices shown are estimates only — DB recomputes authoritatively in Phase 6
-  (known issue 8); `/book` stayed public per J17.
+- **Notes:** slot grid was intentionally static until Phase 5 (known issue 6,
+  since closed); prices shown are estimates only — DB recomputes authoritatively
+  in Phase 6 (known issue 8); `/book` stayed public per J17.
 
-## 15. Recommended next phase — Phase 5: Availability engine
+### Phase 5 — Availability engine (2026-10-02)
 
-1. **Migration 5** — `get_availability(p_court_id, p_booking_date)` SECURITY
-   DEFINER RPC implementing the §6 flow: load operating hours + tiers, query
-   that court/date's `pending`+`confirmed` bookings, generate hourly slots,
-   overlap rule (`slot.start < booking.end AND slot.end > booking.start`),
-   past-slot check for same-day, attach tier price, return the slot array as
-   JSONB. Exposed via `POST /rest/v1/rpc/get_availability`. **Why RPC:** §5 has
-   no availability endpoint and raw `bookings` reads are RLS-scoped to the
-   owner (public grid must not depend on seeing other people's rows) — record
-   the mechanism as a new decision while implementing.
-2. **Hook** `src/hooks/useAvailability.js` — TanStack Query, 30 s TTL
-   (`CACHE_TTL.availability`), plus Realtime subscribe to
-   `court-{id}-{date}` (§5 channel naming) to refetch on changes.
-3. **Wire** `TimeSlotGrid` to availability: unavailable slots disabled + `aria`
-   state; Book page refetches after a `SLOT_TAKEN` 409 once creation exists.
-4. **Integration tests** — extend the Phase 2 harness suite with availability
-   cases (overlap rule table from §6: exact/partial/contained/adjacent/no
-   overlap, past slots, cancelled bookings free the slot — J16 already covers
-   uniqueness).
-5. Gates: `lint`, `format:check`, `test`, `build`, then update this file.
+- **Created (migration):** `supabase/migrations/20261002000005_availability.sql`
+  — `public.pricing_tier(time) returns jsonb` (immutable, `search_path =
+pg_catalog`, §6 tiers J3) and `public.get_availability(uuid, date) returns
+jsonb` (plpgsql `STABLE SECURITY DEFINER`, `search_path = public, auth,
+pg_temp`), both `grant execute … to anon, authenticated, service_role`.
+- **Behaviour:** validates active court + today…+30-day window; builds the 16
+  hourly slots 06:00–22:00; overlaps that court/date's `pending`+`confirmed`
+  rows only (`slot.start < b.end AND slot.end > b.start`, J16 — cancelled and
+  completed release the slot); marks elapsed same-day slots `past`; attaches
+  tier + rate; returns
+  `{ court_id, booking_date, timezone, open, close, slot_minutes, slots[] }`
+  with no PII (§7). Asia/Manila wall clock throughout (J15).
+- **Created (hook):** `src/hooks/useAvailability.js` — `useAvailability()` via
+  `POST /rest/v1/rpc/get_availability` (30-s TTL §12,
+  `refetchOnWindowFocus: true`, disabled until court + date exist), returns
+  `slots`/`slotStarts`/`unavailable` (Map `start → reason`)/`live`/
+  `isConfigured`; subscribes to `court-{id}-{date}` and invalidates on
+  `availability-changed`; exports `availabilityKey()`, `AVAILABILITY_CHANGED`
+  and `publishAvailabilityChange()` for Phase 6.
+- **Rewired UI:** `TimeSlotGrid.jsx` gained `unavailable`/`loading`/`live`
+  props (server-supplied `slotStarts` replace the static grid, disabled slots
+  carry an `sr-only` reason, skeleton while fetching, conditional footnote);
+  `Book.jsx` wired the hook, branches no-date → skeleton → error `Alert` with
+  retry → grid, and clears a selected slot (with a toast) when the engine
+  reports it unavailable.
+- **Tests (new/extended):** `useAvailability.test.jsx` (8),
+  `useAvailabilityUnconfigured.test.jsx` (2), `TimeSlotGrid.test.jsx` (+4),
+  `Book.test.jsx` (+4, mock added).
+- **Created (integration):** `tests/integration/availability.test.sql`
+  (T32–T49, single transaction + rollback).
+- **Verification:** harness (`run_phase2.ps1`) — **5/5 migrations applied
+  clean**, `rls_and_constraints` **34/34** + `availability` **18/18 = 52
+  assertions PASS**; `npm run lint` → 0 problems · `npm run format:check` →
+  clean · `npm test` → **86/86 passing** (14 files) · `npm run build` → success
+  (initial ≈152 KB gzip — within §12's 200 KB budget; no new chunk).
+- **Decisions:** J18 (availability via SECURITY DEFINER RPC), J19 (broadcast
+  instead of `postgres_changes`); `reason ∈ {booked, past, null}` rather than
+  per-reason booleans; operating hours stay site-level (J4), not per-court.
+- **Modified files:** `src/components/booking/TimeSlotGrid.jsx`,
+  `src/pages/Book.jsx`, `tests/unit/components/TimeSlotGrid.test.jsx`,
+  `tests/unit/pages/Book.test.jsx`, `tests/unit/hooks/useAvailability.test.jsx`,
+  `tests/unit/hooks/useAvailabilityUnconfigured.test.jsx`, this file; harness
+  script outside the repo (now loops over every integration suite).
+- **Not verified live:** no Supabase project (known issue 4), so the RPC was
+  exercised only through the throwaway cluster; realtime untested end-to-end
+  (known issue 10).
 
-Needs either live Supabase credentials or the existing throwaway-cluster
-harness (re-run `run_phase2.ps1` from the temp directory after adding the new
-migration).
+## 15. Recommended next phase — Phase 6: Booking creation
+
+1. **Hook** `src/hooks/useBooking.js` — create a booking
+   (`POST /rest/v1/bookings` via `supabase.from('bookings').insert(...)`, RLS +
+   `bookings_before_insert` guard do the work): force `status = 'pending'`,
+   own `user_id`, `court_id`/`booking_date`/`start_time` from the selection,
+   add-ons via `booking_addons`, `total_amount` from the §6 tiers. Map the
+   `bookings_slot_uniq` violation to **409 `SLOT_TAKEN`** (§6) → refetch
+   availability and re-select. Gate the CTA behind `RequireAuth` (J17) — prompt
+   sign-in preserving `next`.
+2. **Book page wiring** — "Continue to payment" becomes the create action;
+   spinner + error states; on success `publishAvailabilityChange(courtId, date)`
+   (J19), navigate to `/booking/success?ref=…` and clear the store.
+3. **Server-side `total_amount`** — close known issue 8: recompute the price in
+   `bookings_before_insert` from `pricing_tier()` (migration 5) instead of
+   trusting the client (§6; advisory lock or rely on `bookings_slot_uniq`).
+4. **Cancel path** — `/my-bookings` "Cancel" → `status = 'cancelled'` (customers
+   may only cancel, §7) → publish an availability change so the grid frees the
+   slot.
+5. **Integration tests** — `bookings_create.test.sql`: pending forced, 409 on a
+   held slot, released by cancel, add-on linking, authoritative recompute of
+   `total_amount`, sign-in required for guests.
+6. Gates: `lint`, `format:check`, `test`, `build`, harness suite, then update
+   this file.
+
+Needs live Supabase credentials for an end-to-end run; the harness still covers
+the SQL side (re-run `run_phase2.ps1` from the temp directory — it now loops
+over every `tests/integration/*.test.sql` file).
 
 ## 16. Rules for every session
 
@@ -586,4 +695,4 @@ migration).
 
 ---
 
-_Last updated: 2026-10-02 · Phase 4 complete_
+_Last updated: 2026-10-02 · Phase 5 complete_

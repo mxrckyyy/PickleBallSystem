@@ -3,16 +3,20 @@
  * Selection state lives in the Zustand store so it survives route changes;
  * it is never a source of truth for availability, price or status.
  *
- * Phase 4 renders the full selection UI. Availability checking (Phase 5),
- * sign-in enforcement at confirmation and payment (Phase 6, decision J17).
+ * Phase 5 wires the slot grid to the availability engine: slots come from the
+ * `get_availability` RPC and are disabled from its `available` flags, and a
+ * selection that the server reports as gone is dropped immediately.
+ * Sign-in enforcement at confirmation and payment arrive in Phase 6 (J17).
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { useAddons } from '../hooks/useAddons.js';
+import { useAvailability } from '../hooks/useAvailability.js';
 import { useCourts } from '../hooks/useCourts.js';
 import { useBookingStore } from '../stores/bookingStore.js';
 import { buildSlotStarts, slotEndFor } from '../lib/booking.js';
 import { isValidPHPhone } from '../lib/format.js';
+import { Alert } from '../components/ui/Alert.jsx';
 import { Button } from '../components/ui/Button.jsx';
 import { Card } from '../components/ui/Card.jsx';
 import { CourtSelector } from '../components/booking/CourtSelector.jsx';
@@ -30,9 +34,69 @@ export default function Book() {
   const store = useBookingStore();
   const [detailsSaved, setDetailsSaved] = useState(false);
 
+  const availability = useAvailability(store.courtId, store.bookingDate);
+  const { clearSlot } = store;
+  const selectedStart = store.startTime;
+
   const selectedCourt = courtsQuery.data?.find((court) => court.id === store.courtId) ?? null;
   const hasDetails = store.customer.name.trim().length >= 2 && isValidPHPhone(store.customer.phone);
   const canContinue = Boolean(store.courtId && store.bookingDate && store.startTime && hasDetails);
+
+  // Never leave a slot selected that the engine reports as gone (taken or
+  // already started) — the user has to pick a live one again.
+  const unavailable = availability.unavailable;
+  useEffect(() => {
+    if (!selectedStart || unavailable.size === 0) return;
+    const reason = unavailable.get(selectedStart);
+    if (!reason) return;
+    clearSlot();
+    toast.info(
+      reason === 'past'
+        ? 'That time has already started — pick a new slot.'
+        : 'That time slot was just taken — pick another one.',
+    );
+  }, [unavailable, selectedStart, clearSlot]);
+
+  const loadingAvailability =
+    Boolean(store.courtId) &&
+    Boolean(store.bookingDate) &&
+    availability.isConfigured &&
+    availability.isPending;
+  const availabilityError = availability.isConfigured && availability.isError;
+
+  let slotStep;
+  if (!store.bookingDate) {
+    slotStep = <TimeSlotGrid bookingDate="" slots={SLOTS} />;
+  } else if (loadingAvailability) {
+    slotStep = <TimeSlotGrid bookingDate={store.bookingDate} slots={SLOTS} loading />;
+  } else if (availabilityError) {
+    slotStep = (
+      <Alert variant="danger" title="Couldn't load available times">
+        <p>The live schedule is unavailable right now. Please try again.</p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="mt-2"
+          onClick={() => availability.refetch()}
+        >
+          Try again
+        </Button>
+      </Alert>
+    );
+  } else {
+    slotStep = (
+      <TimeSlotGrid
+        bookingDate={store.bookingDate}
+        slots={availability.slotStarts ?? SLOTS}
+        unavailable={unavailable}
+        selectedStart={store.startTime}
+        onSelect={(start) => store.setSlot({ startTime: start, endTime: slotEndFor(start) })}
+        disabled={!store.courtId}
+        live={availability.live}
+      />
+    );
+  }
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
@@ -59,17 +123,7 @@ export default function Book() {
             <div className="max-w-xs">
               <DatePicker value={store.bookingDate ?? ''} onChange={store.setBookingDate} />
             </div>
-            <div className="mt-5">
-              <TimeSlotGrid
-                bookingDate={store.bookingDate}
-                slots={SLOTS}
-                selectedStart={store.startTime}
-                onSelect={(start) =>
-                  store.setSlot({ startTime: start, endTime: slotEndFor(start) })
-                }
-                disabled={!store.courtId}
-              />
-            </div>
+            <div className="mt-5">{slotStep}</div>
           </Card>
 
           <Card title="3 · Add-ons (optional)" description="Extras you can bring along.">

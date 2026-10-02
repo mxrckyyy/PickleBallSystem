@@ -6,6 +6,7 @@ import { addDays, format } from 'date-fns';
 const mocks = vi.hoisted(() => ({
   courts: {},
   addons: {},
+  availability: {},
 }));
 
 vi.mock('../../../src/hooks/useCourts.js', () => ({
@@ -14,11 +15,26 @@ vi.mock('../../../src/hooks/useCourts.js', () => ({
 vi.mock('../../../src/hooks/useAddons.js', () => ({
   useAddons: () => mocks.addons,
 }));
+vi.mock('../../../src/hooks/useAvailability.js', () => ({
+  useAvailability: () => mocks.availability,
+}));
 
 import Book from '../../../src/pages/Book.jsx';
 import { useBookingStore } from '../../../src/stores/bookingStore.js';
 
 const FUTURE_DATE = format(addDays(new Date(), 3), 'yyyy-MM-dd');
+
+const staticAvailability = () => ({
+  isConfigured: false,
+  isPending: false,
+  isError: false,
+  error: null,
+  refetch: vi.fn(),
+  slotStarts: null,
+  slots: null,
+  unavailable: new Map(),
+  live: false,
+});
 
 beforeEach(() => {
   useBookingStore.getState().reset();
@@ -41,6 +57,7 @@ beforeEach(() => {
     isConfigured: true,
     refetch: vi.fn(),
   };
+  mocks.availability = staticAvailability();
 });
 
 describe('Book page', () => {
@@ -81,5 +98,98 @@ describe('Book page', () => {
     expect(screen.getByText('₱300.00')).toBeInTheDocument();
     expect(screen.getAllByText('Court A').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: /continue to payment/i })).toBeEnabled();
+  });
+});
+
+describe('Book page with the availability engine', () => {
+  it('renders the slot grid returned by the server and disables taken slots', async () => {
+    mocks.availability = {
+      ...staticAvailability(),
+      isConfigured: true,
+      live: true,
+      slotStarts: ['06:00', '07:00', '08:00'],
+      unavailable: new Map([['07:00', 'booked']]),
+    };
+    const user = userEvent.setup();
+    render(<Book />);
+
+    await user.click(screen.getByRole('radio', { name: /court a/i }));
+    fireEvent.change(screen.getByLabelText(/booking date/i), {
+      target: { value: FUTURE_DATE },
+    });
+
+    expect(
+      screen.getByRole('radio', { name: /7:00 am – 8:00 am.*already booked/i }),
+    ).toBeDisabled();
+    expect(screen.getByRole('radio', { name: /6:00 am – 7:00 am/i })).toBeEnabled();
+    expect(screen.queryByRole('radio', { name: /5:00 pm/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/refreshes automatically/i)).toBeInTheDocument();
+  });
+
+  it('shows a loading state while availability is fetched', async () => {
+    mocks.availability = { ...staticAvailability(), isConfigured: true, isPending: true };
+    const user = userEvent.setup();
+    render(<Book />);
+
+    await user.click(screen.getByRole('radio', { name: /court a/i }));
+    fireEvent.change(screen.getByLabelText(/booking date/i), {
+      target: { value: FUTURE_DATE },
+    });
+
+    expect(screen.getByTestId('slot-grid-loading')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(/loading available times/i);
+    expect(screen.queryByRole('radio', { name: /6:00 am/i })).not.toBeInTheDocument();
+  });
+
+  it('offers a retry when availability cannot be loaded', async () => {
+    const refetch = vi.fn();
+    mocks.availability = {
+      ...staticAvailability(),
+      isConfigured: true,
+      isError: true,
+      error: new Error('boom'),
+      refetch,
+    };
+    const user = userEvent.setup();
+    render(<Book />);
+
+    fireEvent.change(screen.getByLabelText(/booking date/i), {
+      target: { value: FUTURE_DATE },
+    });
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/couldn't load available times/i);
+    await user.click(screen.getByRole('button', { name: /try again/i }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops a selection the engine reports as no longer available', async () => {
+    mocks.availability = {
+      ...staticAvailability(),
+      isConfigured: true,
+      live: true,
+      slotStarts: ['06:00', '07:00'],
+      unavailable: new Map(),
+    };
+    const user = userEvent.setup();
+    const { rerender } = render(<Book />);
+
+    await user.click(screen.getByRole('radio', { name: /court a/i }));
+    fireEvent.change(screen.getByLabelText(/booking date/i), {
+      target: { value: FUTURE_DATE },
+    });
+    await user.click(screen.getByRole('radio', { name: /6:00 am – 7:00 am/i }));
+    expect(useBookingStore.getState().startTime).toBe('06:00');
+
+    // Somebody else books the slot while this customer is looking at it.
+    mocks.availability = {
+      ...mocks.availability,
+      unavailable: new Map([['06:00', 'booked']]),
+    };
+    rerender(<Book />);
+
+    expect(useBookingStore.getState().startTime).toBeNull();
+    expect(
+      screen.getByRole('radio', { name: /6:00 am – 7:00 am.*already booked/i }),
+    ).toBeDisabled();
   });
 });
