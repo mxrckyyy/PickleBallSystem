@@ -6,13 +6,20 @@
  * Phase 5 wires the slot grid to the availability engine: slots come from the
  * `get_availability` RPC and are disabled from its `available` flags, and a
  * selection that the server reports as gone is dropped immediately.
- * Sign-in enforcement at confirmation and payment arrive in Phase 6 (J17).
+ *
+ * Phase 6 turns "Continue to payment" into the creation action: the slot is
+ * reserved as `pending` through `create_booking` (J17 — guests are bounced to
+ * /login with their selection still saved), a lost race maps to SLOT_TAKEN and
+ * refetches the grid, and a created booking navigates to /booking/success.
  */
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAddons } from '../hooks/useAddons.js';
+import { useAuth } from '../hooks/useAuth.jsx';
 import { useAvailability } from '../hooks/useAvailability.js';
 import { useCourts } from '../hooks/useCourts.js';
+import { useCreateBooking, isSlotTaken } from '../hooks/useBooking.js';
 import { useBookingStore } from '../stores/bookingStore.js';
 import { buildSlotStarts, slotEndFor } from '../lib/booking.js';
 import { isValidPHPhone } from '../lib/format.js';
@@ -27,11 +34,15 @@ import { BookingSummary } from '../components/booking/BookingSummary.jsx';
 import { CustomerDetailsForm } from '../components/booking/CustomerDetailsForm.jsx';
 
 const SLOTS = buildSlotStarts();
+const LOGIN_NEXT = '/login?next=%2Fbook';
 
 export default function Book() {
   const courtsQuery = useCourts();
   const addonsQuery = useAddons();
   const store = useBookingStore();
+  const { isAuthenticated } = useAuth();
+  const navigate = useNavigate();
+  const createBooking = useCreateBooking();
   const [detailsSaved, setDetailsSaved] = useState(false);
 
   const availability = useAvailability(store.courtId, store.bookingDate);
@@ -56,6 +67,49 @@ export default function Book() {
         : 'That time slot was just taken — pick another one.',
     );
   }, [unavailable, selectedStart, clearSlot]);
+
+  // A creation failure belongs to the selection that produced it: changing the
+  // court, date or slot clears the message instead of leaving it dangling.
+  const { isError: createFailed, reset: resetCreate } = createBooking;
+  useEffect(() => {
+    if (createFailed) resetCreate();
+  }, [store.courtId, store.bookingDate, store.startTime, createFailed, resetCreate]);
+
+  function handleContinue() {
+    if (!isAuthenticated) {
+      // §7/J17: guests may browse availability but not book. The Zustand store
+      // keeps the selection while they sign in.
+      toast.info('Sign in to continue your booking.');
+      navigate(LOGIN_NEXT);
+      return;
+    }
+
+    createBooking.mutate(
+      {
+        courtId: store.courtId,
+        bookingDate: store.bookingDate,
+        startTime: store.startTime,
+        endTime: store.endTime,
+        customer: store.customer,
+        addons: store.addons.map((addon) => ({ addon_id: addon.id, quantity: addon.quantity })),
+      },
+      {
+        onSuccess: (booking) => {
+          store.reset();
+          navigate(`/booking/success?ref=${encodeURIComponent(booking.id)}`, {
+            state: { booking },
+          });
+        },
+        onError: (error) => {
+          if (isSlotTaken(error)) {
+            // §6: refetch availability and let the grid show the new truth.
+            toast.error(error.message);
+            availability.refetch();
+          }
+        },
+      },
+    );
+  }
 
   const loadingAvailability =
     Boolean(store.courtId) &&
@@ -97,6 +151,9 @@ export default function Book() {
       />
     );
   }
+
+  const createError =
+    createBooking.isError && !isSlotTaken(createBooking.error) ? createBooking.error : null;
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
@@ -164,11 +221,24 @@ export default function Book() {
               endTime={store.endTime}
               addons={store.addons}
             >
-              <Button type="button" className="w-full" disabled={!canContinue}>
-                Continue to payment
+              <Button
+                type="button"
+                className="w-full"
+                disabled={!canContinue || createBooking.isPending}
+                loading={createBooking.isPending}
+                onClick={handleContinue}
+              >
+                {createBooking.isPending ? 'Reserving your slot…' : 'Continue to payment'}
               </Button>
+              {createError ? (
+                <Alert variant="danger" title="Couldn't create your booking" className="mt-3">
+                  <p>{createError.message}</p>
+                </Alert>
+              ) : null}
               <p className="mt-2 text-xs text-slate-500">
-                Sign-in is required when you confirm the booking. Payment arrives next.
+                {isAuthenticated
+                  ? 'We reserve the slot first, then you complete the payment.'
+                  : 'Sign in when you confirm — your selection stays saved.'}
               </p>
             </BookingSummary>
           </div>

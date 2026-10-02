@@ -10,6 +10,7 @@ import { Skeleton } from './components/ui/Skeleton';
 
 const Home = lazy(() => import('./pages/Home.jsx'));
 const Book = lazy(() => import('./pages/Book.jsx'));
+const BookingSuccess = lazy(() => import('./pages/BookingSuccess.jsx'));
 const MyBookings = lazy(() => import('./pages/MyBookings.jsx'));
 const Login = lazy(() => import('./pages/Login.jsx'));
 const NotFound = lazy(() => import('./pages/NotFound.jsx'));
@@ -40,6 +41,9 @@ export default function App() {
                 <Route element={<AppLayout />}>
                   <Route index element={<Home />} />
                   <Route path="book" element={<Book />} />
+                  {/* Public on purpose: the payload is an RLS-scoped `ref`, and
+                      the payment phase redirects back here after checkout. */}
+                  <Route path="booking/success" element={<BookingSuccess />} />
                   <Route
                     path="my-bookings"
                     element={

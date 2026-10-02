@@ -1,15 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
 const mocks = vi.hoisted(() => ({
   query: {},
+  cancel: {},
+  toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() },
 }));
 
 vi.mock('../../../src/hooks/useMyBookings.js', () => ({
   useMyBookings: () => mocks.query,
 }));
+vi.mock('../../../src/hooks/useBooking.js', () => ({
+  useCancelBooking: () => mocks.cancel,
+}));
+vi.mock('sonner', () => ({ toast: mocks.toast }));
 
 import MyBookings from '../../../src/pages/MyBookings.jsx';
 
@@ -34,6 +40,7 @@ function renderPage() {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks();
   mocks.query = {
     data: undefined,
     isPending: false,
@@ -41,6 +48,13 @@ beforeEach(() => {
     error: null,
     refetch: vi.fn(),
     isConfigured: true,
+  };
+  mocks.cancel = {
+    mutate: vi.fn(),
+    isPending: false,
+    isError: false,
+    error: null,
+    reset: vi.fn(),
   };
 });
 
@@ -93,5 +107,84 @@ describe('MyBookings page', () => {
     expect(screen.getByText('Court A')).toBeInTheDocument();
     expect(screen.getByText('Court B')).toBeInTheDocument();
     expect(screen.getByText('cancelled')).toBeInTheDocument();
+  });
+});
+
+describe('MyBookings cancellation (§7)', () => {
+  it('offers cancellation only while a booking can still be cancelled', () => {
+    mocks.query.data = [
+      { ...BOOKING, id: 'b1', status: 'pending' },
+      { ...BOOKING, id: 'b2', status: 'confirmed' },
+      { ...BOOKING, id: 'b3', status: 'cancelled' },
+      { ...BOOKING, id: 'b4', status: 'completed' },
+    ];
+    renderPage();
+    expect(screen.getAllByRole('button', { name: /^cancel$/i })).toHaveLength(2);
+  });
+
+  it('asks for confirmation and then cancels the booking', async () => {
+    mocks.query.data = [{ ...BOOKING, status: 'pending' }];
+    let callbacks;
+    mocks.cancel.mutate = vi.fn((input, cb) => {
+      callbacks = cb;
+    });
+    renderPage();
+
+    await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByText(/slot is released/i)).toBeInTheDocument();
+    expect(mocks.cancel.mutate).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole('button', { name: /cancel booking/i }));
+    expect(mocks.cancel.mutate).toHaveBeenCalledWith({ id: 'b1' }, expect.any(Object));
+
+    await act(async () => {
+      callbacks.onSuccess({ id: 'b1' });
+    });
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(mocks.toast.success).toHaveBeenCalledWith(expect.stringMatching(/cancelled/i));
+  });
+
+  it('keeps the dialog open when the cancel request fails', async () => {
+    mocks.query.data = [{ ...BOOKING, status: 'pending' }];
+    let callbacks;
+    mocks.cancel.mutate = vi.fn((input, cb) => {
+      callbacks = cb;
+    });
+    renderPage();
+
+    await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
+    await userEvent.click(screen.getByRole('button', { name: /cancel booking/i }));
+
+    await act(async () => {
+      callbacks.onError(new Error('booking can no longer be cancelled'));
+    });
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(mocks.toast.error).toHaveBeenCalledWith(
+      expect.stringMatching(/no longer be cancelled/i),
+    );
+  });
+
+  it('can be dismissed without cancelling', async () => {
+    mocks.query.data = [{ ...BOOKING, status: 'pending' }];
+    renderPage();
+
+    await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /keep booking/i }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(mocks.cancel.mutate).not.toHaveBeenCalled();
+  });
+
+  it('blocks the dialog while the request is in flight', async () => {
+    mocks.query.data = [{ ...BOOKING, status: 'pending' }];
+    mocks.cancel.isPending = true;
+    renderPage();
+
+    await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
+    expect(screen.getByRole('button', { name: /keep booking/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /cancel booking/i })).toBeDisabled();
   });
 });
