@@ -20,8 +20,7 @@ export function useMyBookings() {
       const { data, error } = await supabase
         .from('bookings')
         .select(
-          'id, booking_date, start_time, end_time, status, total_amount, customer_name, customer_phone, courts(name)',
-        )
+          'id, booking_date, start_time, end_time, status, total_amount, payment_ref, customer_name, customer_phone, courts(name), booking_addons(quantity, addons(name, price))',        )
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
       if (error) throw error;

@@ -5,7 +5,7 @@
 > (`src/`, `supabase/`, `package.json`) — **actual files win** over this document.
 > Never store secrets in this file.
 
-**Last updated:** 2026-10-02 (Phase 5 — Availability engine complete)
+**Last updated:** 2026-10-13 (Phase 0 re-inspection — repository state verified to Phase 6)
 
 ---
 
@@ -36,10 +36,10 @@ structure, §4 Database schema, §5 API design, §6 Business logic, §7 Security
 | 3     | Authentication (phone OTP)                                | ✅ Complete    |
 | 4     | Public UI                                                 | ✅ Complete    |
 | 5     | Availability engine                                       | ✅ Complete    |
-| 6     | Booking creation                                          | ⬜ Not started |
+| 6     | Booking creation                                          | Complete     |
 | —     | Payments / Edge Functions / Admin / Testing / CI-CD       | ⬜ Not started |
 
-**Active phase: 6 — Booking creation.**
+**Active phase: post-Phase 6 (booking creation complete) - next focus is payments/admin, not covered by the numbered roadmap through Phase 6.**
 
 ## 3. Technology stack
 
@@ -129,14 +129,13 @@ PickleBall System/
 │   ├── components/booking/   ✅ DatePicker, TimeSlotGrid, CourtSelector, AddOnSelector, BookingSummary, CustomerDetailsForm · ⬜ PaymentMethodSelector
 │   ├── components/admin/     ⬜ BookingTable, CourtManager, StatsCards
 │   ├── pages/                ✅ Home, Book, MyBookings, Login, NotFound
-│   ├── hooks/                ✅ useAuth.jsx, useCourts.js, useAddons.js, useMyBookings.js, useAvailability.js · ⬜ useBooking, usePayment
 │   ├── lib/                  ✅ supabase.js, constants.js, format.js, queryClient.js, ui.js, authRateLimit.js, booking.js
 │   ├── stores/               ✅ bookingStore.js
-│   ├── schemas/              ⬜ Zod validation schemas (Phase 6)
+│   ├── schemas/              ✓ Zod validation schemas (booking)
 │   └── styles/               ✅ index.css (Tailwind v4 entry)
-├── supabase/                 ✅ migrations/ (5 migration files)
-├── tests/                    ✅ setup.js, unit/{components,lib,hooks,pages} (14 suites),
-│                              integration/{rls_and_constraints,availability}.test.sql
+├── supabase/                 ✓ migrations/ (6 migration files)
+├── tests/                    ✓ setup.js, unit/{components,lib,hooks,pages} (16 suites),
+│                              integration/{rls_and_constraints,availability,bookings_create}.test.sql
 ├── docs/                     ⬜ (per spec §21)
 ├── .env.example              ✅
 ├── .env.local                ✅ (empty placeholders, git-ignored)
@@ -155,7 +154,6 @@ Non-empty: foundation files above + `PROJECT_CONTEXT.md` + `supabase/migrations/
 `src/components/RequireAuth.jsx`, `src/pages/Login.jsx`) + public-UI source
 (`src/lib/booking.js`, `src/hooks/{useCourts,useAddons,useMyBookings}.js`,
 `src/components/booking/` (6 components), rebuilt `Book`/`MyBookings`/`Home`
-pages) + availability source (`src/hooks/useAvailability.js`, wiring in
 `Book.jsx`/`TimeSlotGrid.jsx`, migration 5) + `tests/unit/**` (14 suites, 86
 tests) + `tests/integration/*.test.sql` (2 files). No `docs/` or `public/` yet.
 Version controlled: git repository on `main`, remote
@@ -173,7 +171,7 @@ Defined in `src/App.jsx` (all lazy-loaded, wrapped in `AppLayout`):
 | `/my-bookings` | My Bookings            | ✅ Implemented (own bookings via RLS, read-only) behind `RequireAuth`                                                                                                      |
 | `*`            | NotFound (404)         | ✅ Implemented                                                                                                                                                             |
 
-Planned later: `/booking/success`, `/booking/error` (payment phase),
+Implemented in Phase 6: /booking/success (RLS-scoped booking reference). Planned later: /booking/error (payment phase), /admin/* (admin phase).
 `/admin/*` (admin phase).
 
 ## 7. Components
@@ -196,7 +194,7 @@ not-configured states), `DatePicker` (min today, max +30 days, §6),
 `AddOnSelector` (checkbox + quantity stepper), `BookingSummary` (live estimate
 from §6 tiers + "final amount confirmed by the system" note),
 `CustomerDetailsForm` (RHF + Zod: name 2–100, `09XXXXXXXXX`, optional email;
-normalises phone on save). `PaymentMethodSelector` is Phase 6.
+normalises phone on save). `PaymentMethodSelector` is not implemented yet (payments phase).
 
 **Other:** `src/components/ErrorBoundary.jsx` (class component, reload/home
 actions, dev-only stack trace), `src/components/RequireAuth.jsx` (route guard —
@@ -222,9 +220,9 @@ returns `slots`, `slotStarts`, `unavailable` (Map `start → 'booked' | 'past'`)
 `live` and `isConfigured`, and subscribes to the Realtime channel
 `court-{id}-{date}` so a broadcast invalidates the query — see J18/J19).
 `useAvailability` also exports `publishAvailabilityChange(courtId, date)` for
-Phase 6 to call after a booking changes.
+`useAvailability` also exports `publishAvailabilityChange(courtId, date)`, now called from Phase 6.
 
-Planned: `useBooking`, `usePayment`.
+Implemented: `useBooking` (create/read/cancel). Planned: `usePayment`.
 
 ## 9. Stores
 
@@ -238,7 +236,7 @@ Selection state only — never a source of truth for availability, price or stat
 
 ### Supabase status
 
-- `supabase/migrations/` created with 5 ordered migrations (no `config.toml` yet —
+- `supabase/migrations/` created with 6 ordered migrations (no `config.toml` yet —
   Supabase CLI/Docker are still missing, see known issue 3).
 - No remote project created / no credentials available yet
   (`VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` remain empty placeholders).
@@ -323,21 +321,18 @@ slot_minutes, slots: [{ start, end, tier, rate, available, reason }] }` with
 
 ### Booking status
 
-- **Selection UI + live availability complete (Phases 4–5); creation not started
-  (Phase 6).** The Book page walks court → date → hourly slot → add-ons →
-  customer details with a live estimate from the §6 tiers
-  (`src/lib/booking.js`); slots are disabled from the engine's `available`
-  flags, "Continue to payment" stays disabled until every step is filled, and
-  the actual insert happens in Phase 6 (auth at confirmation — J17).
-- Lifecycle (§6): `pending → confirmed` (payment webhook),
-  `pending → cancelled` (15-min timeout), `confirmed → completed` (play time
-  passed), `confirmed → cancelled` (user cancels within policy), `cancelled` and
-  `completed` are terminal.
-- Validation rules (§6): active court; date today…+30 days; start within operating
-  hours and not in the past; name 2–100 chars; phone `09` + 9 digits; valid email
-  if provided; `total_amount > 0`.
-- Concurrency (§6): unique constraint → second INSERT fails → client maps to
-  **409 SLOT_TAKEN** → refetch availability. No application-level locking.
+- **Booking creation complete (Phase 6).** The Book page walks court -> date -> hourly slot -> add-ons ->
+  customer details, uses `useAvailability`, and submits via `useCreateBooking` (`create_booking` RPC).
+  Booking insert is `pending`, RLS-scoped, and priced authoritatively by the database (`booking_price()`).
+  `SLOT_TAKEN` is mapped to 409 and triggers an availability refetch; `/booking/success` reads by reference;
+  cancellation is implemented on My Bookings.
+- Lifecycle (A6): `pending -> confirmed` (payment webhook),
+  `pending -> cancelled` (15-min timeout), `confirmed -> completed` (play time passed), `confirmed -> cancelled`
+  (user cancels within policy), `cancelled` and `completed` are terminal.
+- Validation rules (A6): active court; date today..+30 days; start within operating hours and not in the past;
+  name 2-100 chars; phone `09` + 9 digits; valid email if provided; `total_amount > 0` (server recomputed).
+- Concurrency (A6): unique partial index `bookings_slot_uniq` -> second INSERT fails -> client maps to
+  **409 SLOT_TAKEN** -> refetch availability. No application-level locking.
 
 ### Payment status
 
@@ -379,12 +374,14 @@ slot_minutes, slots: [{ start, end, tier, rate, available, reason }] }` with
 ### Testing status
 
 - Vitest configured (jsdom, `tests/setup.js` with jest-dom matchers).
-  Current: **14 suites / 86 tests passing** — `Button` (3), `RequireAuth` (3),
-  `authRateLimit` (6), `useAuth` (10), `useAuthUnconfigured` (3), `Login` (6),
-  `booking` lib (11), `CourtSelector` (7), `TimeSlotGrid` (9),
-  `CustomerDetailsForm` (4), `Book` page (7), `MyBookings` page (6),
-  `useAvailability` (8), `useAvailabilityUnconfigured` (2).
-- Integration (2 files, both single-transaction + rollback, safe against any
+- Vitest configured (jsdom, 	ests/setup.js with jest-dom matchers).
+  Current: **16 suites / 115 tests passing** (verified 2026-10-13 with 
+pm test), covering
+  auth, availability, booking, components, pages and unconfigured states.
+- Integration SQL suites: 
+ls_and_constraints (34 assertions), vailability (18 assertions),
+  and ookings_create (Phase 6 booking creation assertions).
+
   Supabase database; the connection role must be able to `set role
 service_role` — postgres works everywhere, the local harness connects as
   `testrunner` so `session_user` is not superuser/BYPASSRLS):
@@ -429,16 +426,13 @@ service_role` — postgres works everywhere, the local harness connects as
    data hooks will report "not configured" rather than query).
 5. **Phone OTP delivery provider is unspecified** — Supabase Auth phone OTP needs an
    SMS provider; §1 lists Semaphore only for application notifications.
-6. **`/book` cannot create a booking yet** — live availability now drives the
-   slot grid (Phase 5), but checkout stays disabled and the insert lands in
-   Phase 6. `PaymentMethodSelector`, admin pages and
-   `/booking/success|error` are still unwritten.
-7. **Session does not survive a full page reload** (decision J12) — tokens are kept
+6. **`/book` booking creation (Phase 6) is complete** - availability, form validation, `create_booking` RPC, `/booking/success`, and cancellation paths are implemented. Remaining checkout UI: `PaymentMethodSelector`, `/booking/error`, and payment Edge Functions.
+7. **Session does not survive a full page reload** (decision J12) - tokens are kept
    in memory only, per §7. Server-side OTP TTL (5 min, §7) and refresh-token
    cookie handling still need confirming on the real Supabase project.
-8. **`total_amount` is not recomputed server-side** — the insert guard only
-   enforces `> 0`; the authoritative price (§6 tiers, J3) must be computed in the
-   database/Edge Function before the payment phase ships.
+8. **`total_amount` recomputed server-side (resolved in Phase 6)** - `public.booking_price()`
+    prices the court rental from A6 tiers plus the add-on catalog; the client only chooses items/quantities.
+
 9. **Integration harness is machine-local** — the shim/runner scripts live in a
    temp directory (by design, not committed); the committed artifacts are
    `tests/integration/rls_and_constraints.test.sql` and
@@ -453,10 +447,10 @@ service_role` — postgres works everywhere, the local harness connects as
 ## 12. Missing requirements
 
 Foundation (Phase 1), the database schema/RLS (Phase 2), the auth client
-(Phase 3), the public UI (Phase 4) and the availability engine (Phase 5) are
-done. Still missing: booking creation, payments (Edge Functions + payment UI),
-cron jobs, SMS, admin, audit-log _consumption_, security headers/rate limits,
-monitoring, CI/CD, documentation (§21).
+(Phase 3), the public UI (Phase 4), the availability engine (Phase 5) and booking creation (Phase 6) are
+done. Still missing: payments (Edge Functions + payment UI),
+cron jobs, SMS, admin, audit-log consumption, security headers/rate limits,
+monitoring, CI/CD, documentation (A21), format cleanup (prettier check currently fails on 66 files).
 
 ## 13. Specification ambiguities to keep resolved here
 
@@ -620,7 +614,6 @@ pg_temp`), both `grant execute … to anon, authenticated, service_role`.
   tier + rate; returns
   `{ court_id, booking_date, timezone, open, close, slot_minutes, slots[] }`
   with no PII (§7). Asia/Manila wall clock throughout (J15).
-- **Created (hook):** `src/hooks/useAvailability.js` — `useAvailability()` via
   `POST /rest/v1/rpc/get_availability` (30-s TTL §12,
   `refetchOnWindowFocus: true`, disabled until court + date exist), returns
   `slots`/`slotStarts`/`unavailable` (Map `start → reason`)/`live`/
@@ -655,35 +648,64 @@ pg_temp`), both `grant execute … to anon, authenticated, service_role`.
   exercised only through the throwaway cluster; realtime untested end-to-end
   (known issue 10).
 
-## 15. Recommended next phase — Phase 6: Booking creation
+### Phase 6 - Booking creation (2026-10-13, verified in repo)
 
-1. **Hook** `src/hooks/useBooking.js` — create a booking
-   (`POST /rest/v1/bookings` via `supabase.from('bookings').insert(...)`, RLS +
-   `bookings_before_insert` guard do the work): force `status = 'pending'`,
-   own `user_id`, `court_id`/`booking_date`/`start_time` from the selection,
-   add-ons via `booking_addons`, `total_amount` from the §6 tiers. Map the
-   `bookings_slot_uniq` violation to **409 `SLOT_TAKEN`** (§6) → refetch
-   availability and re-select. Gate the CTA behind `RequireAuth` (J17) — prompt
-   sign-in preserving `next`.
-2. **Book page wiring** — "Continue to payment" becomes the create action;
-   spinner + error states; on success `publishAvailabilityChange(courtId, date)`
-   (J19), navigate to `/booking/success?ref=…` and clear the store.
-3. **Server-side `total_amount`** — close known issue 8: recompute the price in
-   `bookings_before_insert` from `pricing_tier()` (migration 5) instead of
-   trusting the client (§6; advisory lock or rely on `bookings_slot_uniq`).
-4. **Cancel path** — `/my-bookings` "Cancel" → `status = 'cancelled'` (customers
-   may only cancel, §7) → publish an availability change so the grid frees the
-   slot.
-5. **Integration tests** — `bookings_create.test.sql`: pending forced, 409 on a
-   held slot, released by cancel, add-on linking, authoritative recompute of
-   `total_amount`, sign-in required for guests.
-6. Gates: `lint`, `format:check`, `test`, `build`, harness suite, then update
-   this file.
+- **Created (hook):** `src/hooks/useBooking.js` - `useCreateBooking`, `useBooking`, `useCancelBooking`; maps `23505`/`bookings_slot_uniq` to 409 `SLOT_TAKEN`.
+- **Created (schema):** `src/schemas/booking.js` - Zod input validation for court/date/time/customer/add-ons.
+- **Created (page):** `src/pages/BookingSuccess.jsx` - reads a booking by RLS-scoped reference.
+- **Updated:** `src/pages/Book.jsx` wiring (create action, errors, publish availability), `src/pages/MyBookings.jsx` cancellation.
+- **Created (migration):** `supabase/migrations/20261002000006_booking_creation.sql` - `booking_price()` + `create_booking()` RPC, authoritative server-side pricing, tests.
+- **Created (tests):** `tests/unit/hooks/useBooking.test.jsx`, `tests/unit/pages/BookingSuccess.test.jsx`, extended `Book`/`MyBookings` tests, `tests/integration/bookings_create.test.sql`.
+- **Status:** `npm run lint` + `npm test` (115/115) + `npm run build` passed in this inspection; `npm run format:check` currently fails on 66 files.
 
-Needs live Supabase credentials for an end-to-end run; the harness still covers
-the SQL side (re-run `run_phase2.ps1` from the temp directory — it now loops
-over every `tests/integration/*.test.sql` file).
+### Phase 7 - My Bookings enhancements (2026-10-13)
 
+- **Updated hook:** `useMyBookings` now selects `payment_ref` and nested `booking_addons(quantity, addons(name, price))`.
+- **Created:** `src/lib/cancellation.js` (`refundPercentForCancellation`, `cancellationPolicyText`) implementing the 24h/12h policy copy.
+- **Updated page:** `MyBookings.jsx` displays payment state, add-ons and expected refund policy in the cancel modal.
+- **Verification:** lint 0, tests 115/115, build success.
+- **Still missing:** actual refund processing and payment state beyond `payment_ref` (Phase 8/9).
+
+## 19. Final static audit snapshot (2026-10-13)
+
+### IMPLEMENTED
+- Foundation, database schema/RLS (Phases 1-2).
+- Phone OTP client (Phase 3).
+- Public UI and booking selection (Phase 4).
+- Availability engine (Phase 5).
+- Booking creation/cancellation (Phase 6).
+- My Bookings payment/add-on visibility and cancellation policy copy (Phase 7).
+
+### VERIFIED
+- `npm run lint` passes.
+- `npm test` passes: 16 suites / 115 tests.
+- `npm run build` passes.
+- `.env.example` documents only public frontend vars; no secret literals found in source.
+
+### NOT IMPLEMENTED / NOT VERIFIED
+- Payments, webhooks, cron, admin, monitoring, CI/CD, E2E, load, OWASP ZAP, accessibility audit, performance measurement with real data.
+- `npm run format:check` currently fails on 66 files.
+- No Supabase credentials/tooling, so DB/RPC/RLS cannot be exercised live.
+
+### PRODUCTION READINESS
+- Frontend and schema layers are coherent and test-covered for implemented scope.
+- Not production-ready overall because payments, automation, admin, deployment and live integration verification are incomplete.
+
+## 15. Recommended next phase - Payments / Edge Functions
+
+Phase 6 is complete in the repository. The next major delivery focus (not covered by the numbered
+Phase 0-6 roadmap in the task prompt) is payments:
+
+1. **Edge Function `create-payment`** - JWT + ownership + pending + <15 min + PayMongo + store `payment_ref` + return checkout URL.
+2. **Edge Function `paymongo-webhook`** - HMAC verify (constant-time), idempotent by payment reference, set booking `confirmed`, trigger Semaphore SMS.
+3. **Payment UI** - `PaymentMethodSelector`, redirect handling, `/booking/error`.
+4. **Cron jobs** - `cancel-expired` (every 5 min), `send-reminder` (daily 18:00 PHT), no-show sweep.
+5. **Admin surface and audit-log consumption**.
+6. **Security headers/CSP, rate limiting, monitoring, CI/CD**.
+
+Gates for each step: lint, test, build, and the SQL harness (`tests/integration/*.test.sql`) where database behavior changes.
+
+Needs live Supabase credentials and PayMongo/Semaphore accounts for end-to-end verification.
 ## 16. Rules for every session
 
 1. Read this file first, then scan the actual repository.
@@ -695,4 +717,4 @@ over every `tests/integration/*.test.sql` file).
 
 ---
 
-_Last updated: 2026-10-02 · Phase 5 complete_
+_Last updated: 2026-10-13 - Phase 0 re-inspection (Phase 6 verified complete)_

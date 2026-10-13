@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { useCancelBooking } from '../hooks/useBooking.js';
 import { useMyBookings } from '../hooks/useMyBookings.js';
 import { BOOKING_STATUS } from '../lib/constants.js';
+import { cancellationPolicyText, refundPercentForCancellation } from '../lib/cancellation.js';
 import { formatCurrency, formatDate, formatTimeRange, maskPhone } from '../lib/format.js';
 import { buttonClasses } from '../lib/ui';
 import { Alert } from '../components/ui/Alert.jsx';
@@ -111,7 +112,25 @@ export default function MyBookings() {
                       {formatTimeRange(booking.start_time, booking.end_time)}
                     </p>
                     <p className="mt-0.5 text-sm text-slate-500">
-                      {booking.customer_name} · {maskPhone(booking.customer_phone)}
+                      {booking.customer_name} &middot; {maskPhone(booking.customer_phone)}
+                    </p>
+                    {Array.isArray(booking.booking_addons) && booking.booking_addons.length ? (
+                      <p className="mt-0.5 text-sm text-slate-500">
+                        Add-ons:{' '}
+                        {booking.booking_addons
+                          .map((line) => `${line.addons?.name ?? 'Add-on'} x${line.quantity}`)
+                          .join(', ')}
+                      </p>
+                    ) : null}
+                    <p className="mt-0.5 text-sm text-slate-500">
+                      Payment:{' '}
+                      {booking.status === 'confirmed' || booking.status === 'completed'
+                        ? 'Paid'
+                        : booking.status === 'cancelled'
+                          ? 'Cancelled'
+                          : booking.payment_ref
+                            ? 'Paid'
+                            : 'Payment pending'}
                     </p>
                   </div>
                   <div className="flex items-center gap-4">
@@ -168,6 +187,9 @@ export default function MyBookings() {
             <p className="text-slate-600">
               {formatDate(cancelTarget.booking_date)} ·{' '}
               {formatTimeRange(cancelTarget.start_time, cancelTarget.end_time)}
+            </p>
+            <p className="text-slate-500">
+              {cancellationPolicyText(refundPercentForCancellation(cancelTarget))}
             </p>
             <p className="text-slate-500">
               This cannot be undone — you would need to book the slot again.
