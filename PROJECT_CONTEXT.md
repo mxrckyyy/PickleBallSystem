@@ -691,6 +691,58 @@ pg_temp`), both `grant execute … to anon, authenticated, service_role`.
 - Frontend and schema layers are coherent and test-covered for implemented scope.
 - Not production-ready overall because payments, automation, admin, deployment and live integration verification are incomplete.
 
+## Phase 8 environment readiness check (2026-10-13)
+
+### Readiness status
+| Requirement | Status |
+| --- | --- |
+| Supabase CLI | BLOCKED |
+| Docker / local Supabase stack | BLOCKED |
+| Remote Supabase project configured | BLOCKED (no `.env.local`; `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are unset) |
+| Edge Function tooling (Deno / Supabase Functions) | BLOCKED |
+| Existing PayMongo integration references | READY (server-side only concept; no frontend references found) |
+| PayMongo test credential configuration | NEEDS CONFIGURATION |
+| Booking/payment schema review | READY (verified `payment_ref`, booking status, addons) |
+| Safe test payment flow | BLOCKED (requires Supabase project + PayMongo test account) |
+
+### Exact missing tools/configuration (no secret values)
+- Supabase CLI: missing.
+- Docker: missing.
+- Deno: missing.
+- `.env.local`: missing.
+- Supabase remote project URL/anon key: not configured in repository.
+- PayMongo test secret / webhook secret: not configured and must be added as Supabase Edge Function secrets only.
+- Local Supabase stack: not available, so migrations/functions cannot be verified live.
+
+### Files inspected
+- `PROJECT_CONTEXT.md`
+- `package.json`
+- `.env.example`
+- repository root and `scripts/`
+- `supabase/migrations/20261002000001_core_tables.sql`
+- command availability checks for `supabase`, `docker`, `deno`, `npx`
+
+### Changes made
+- No application functionality modified.
+- This readiness section and wording updates added to `PROJECT_CONTEXT.md`.
+
+### Manual steps required
+1. Install Supabase CLI and Docker.
+2. Install Deno for Edge Function local development.
+3. Create or select a remote Supabase project.
+4. Add public values only to `.env.local`: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`.
+5. Add server-side secrets only through Supabase secret management:
+   - `PAYMONGO_SECRET_KEY`
+   - `PAYMONGO_WEBHOOK_SECRET`
+   - `SEM_API_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `CRON_SECRET`
+6. Provide PayMongo test-mode credentials and a test payment account.
+7. Verify PayMongo signing format/version before implementing the webhook.
+8. Do not use production credentials, production Supabase data, or real charges during Phase 8.
+
+### Phase 8 decision
+Phase 8 cannot safely begin yet. Prerequisites are blocked until the local Supabase/Edge Function tooling and server-side configuration are completed.
 ## 15. Recommended next phase - Payments / Edge Functions
 
 Phase 6 is complete in the repository. The next major delivery focus (not covered by the numbered
